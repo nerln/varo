@@ -51,6 +51,17 @@ and stays quiet in every session that is about something else.
 That last part matters. A hook that speaks in every session is noise people
 learn to skip.
 
+**A second hook that makes the auditor's read-only claim true.** The agent
+holds a shell, because reading a live site means asking for status codes and
+headers and asking git which branch deploys. A shell that can do that can also
+push. So every command the auditor sends is read first, and it runs only if it
+is one of the commands that read. Writing, staging, committing, pushing,
+deploying, posting a form, and any interpreter that could do those in one line,
+all come back refused with the reason.
+
+It answers for that one agent. Publishing from a normal session goes through
+untouched, which is the other half of this plugin.
+
 ## Installing
 
 ```bash
@@ -69,8 +80,8 @@ claude --plugin-dir ./varo
 Nothing to build, and no dependency past Python 3 and git, both already on any
 machine that deploys websites.
 
-It costs about 264 tokens in every session, which is the skill and the agent
-announcing that they exist. The hook runs in the harness and adds nothing to
+It costs about 288 tokens in every session, which is the skill and the agent
+announcing that they exist. Both hooks run in the harness and add nothing to
 the model's context at all. Numbers from `claude plugin details varo`, not
 estimated by hand.
 
@@ -102,6 +113,30 @@ not mean it did anything. Each of those has shipped broken while the repository
 looked correct, which is why a finding counts here when the live site answered,
 and counts for nothing when it came from reading code and reasoning about what
 the code probably does.
+
+## A promise nobody can check is prose
+
+The auditor's description said it changes nothing, and that was a sentence in a
+prompt. The agent held a shell, and a shell stages, commits, pushes and deploys.
+Nothing in the harness stopped it. The promise was worth whatever the model made
+of the instruction that day, and a page fetched during an audit could carry an
+instruction of its own.
+
+Now every command the auditor sends is read before it runs, and it runs only if
+it is one of the commands that read. The list is an allowlist, because a list of
+forbidden commands is a list of the ones somebody thought of, and
+`sh -c 'git push'` is never on it.
+
+The check ships with the claim. `tools/prova.py` fails when an agent here calls
+itself read-only while holding a tool that writes, unless the refusal exists,
+and it runs the refusal against a write to see it land. Take the hook away and
+the tests go red.
+
+The first end-to-end run found the guard doing nothing at all. Installed as a
+plugin, an agent is called `varo:site-auditor`, and the check was looking for
+`site-auditor`, so a write went straight to disk. That is the same mistake in a
+smaller size: something believed instead of run. Both spellings are in the tests
+now, and the run that proved it works is a run against the live plugin.
 
 ## Does the auditor actually find anything
 
@@ -135,11 +170,14 @@ asks for.
 python3 tools/prova.py
 ```
 
-Twenty-nine of them, a few seconds, run against throwaway repositories built on
-the spot. They cover the plugin manifest, the hook's behaviour on a site, on a
-folder that is not a site, outside git, and on a path that does not exist, and
-they run the prose through `tools/stylecheck.py`, which enforces the writing
-rules mechanically instead of by rereading.
+Forty-five of them, a few seconds, run against throwaway repositories built on
+the spot. They cover the plugin manifest, the SessionStart hook's behaviour on a
+site, on a folder that is not a site, outside git, and on a path that does not
+exist, and what the auditor is allowed to run: pushes, commits, redirections,
+interpreters, form submissions and the write hidden at the end of a compound
+command all have to come back refused, while curl and the reading half of git
+have to come through. They also run the prose through `tools/stylecheck.py`,
+which enforces the writing rules mechanically instead of by rereading.
 
 ## Licence
 

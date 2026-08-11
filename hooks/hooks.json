@@ -1,6 +1,18 @@
 {
-  "description": "On SessionStart, if the folder holds a static site, hand the session what it needs to stop guessing: the host it deploys to, the public address, commits that never reached the remote, uncommitted files. Local reads only, no network, so it costs milliseconds and stays quiet in every session that is about something else.",
+  "description": "Two hooks. On SessionStart, if the folder holds a static site, hand the session what it needs to stop guessing: the host it deploys to, the public address, commits that never reached the remote, uncommitted files. Local reads only, no network, so it costs milliseconds and stays quiet in every session that is about something else. On PreToolUse, hold the site-auditor agent to reading: it says it changes nothing, and this is what makes that true rather than promised. It only ever answers for that agent, so publishing from a normal session is untouched.",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/solo-lettura.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [

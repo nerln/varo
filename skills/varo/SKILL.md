@@ -136,9 +136,15 @@ Domains that cost nothing are no longer a real option.
 ## When to send in the auditor
 
 For a full pass over a live site, hand it to the `site-auditor` agent. It reads
-and reports, and changes nothing, so it is safe to point at a client's site
-in production. Use it before handing a site over, after moving hosts, and when
-someone says a form stopped arriving.
+and reports, and changes nothing, so it is safe to point at a client's site in
+production. That last part is held by a hook rather than by the agent's own
+good behaviour: every shell command the auditor sends is checked first, and one
+that writes, stages, commits, pushes, deploys or posts a form is refused before
+it runs. Use the auditor before handing a site over, after moving hosts, and
+when someone says a form stopped arriving.
+
+Publishing from a normal session is untouched by that check. It answers for the
+auditor and stays silent everywhere else.
 
 ## What this does not do
 
