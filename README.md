@@ -64,6 +64,14 @@ untouched, which is the other half of this plugin.
 
 ## Installing
 
+There is no `pipx install varo`, and there will not be one. varo has no command
+to run. What it ships is an agent, a skill and two hooks, and Claude Code reads
+those out of `~/.claude`. A `pyproject.toml` here would package nothing and
+install a name that answers to nothing, so installing means wiring the files
+into that folder.
+
+The marketplace does the wiring for you:
+
 ```bash
 claude plugin marketplace add nerln/varo
 claude plugin install varo@varo
@@ -76,6 +84,27 @@ whether you want it:
 git clone https://github.com/nerln/varo.git
 claude --plugin-dir ./varo
 ```
+
+Or keep the clone and wire it in yourself, which is what `install.sh` is for:
+
+```bash
+git clone https://github.com/nerln/varo.git
+cd varo
+./install.sh           # says what it would do, writes nothing
+./install.sh --apply
+```
+
+The agent and the skill go in as symlinks, so a `git pull` here updates what is
+installed. The hooks cannot be symlinked, because they live as entries inside
+`settings.json`, so the entries carry the path of the scripts in this clone and
+a pull updates those too.
+
+That file is shared with everything else that registers a hook. The script
+reads it, adds the two entries that are missing, and writes it back. It copies
+the file first and prints where the copy went. Run it twice and the second run
+does nothing. If the file does not parse, it stops before touching anything, on
+the grounds that a settings.json nobody can read is somebody's unfinished edit
+and guessing at it would throw their work away.
 
 Nothing to build, and no dependency past Python 3 and git, both already on any
 machine that deploys websites.
