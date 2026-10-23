@@ -199,12 +199,13 @@ asks for.
 python3 tools/prova.py
 ```
 
-Forty-five of them, a few seconds, run against throwaway repositories built on
+Forty-eight of them, a few seconds, run against throwaway repositories built on
 the spot. They cover the plugin manifest, the SessionStart hook's behaviour on a
 site, on a folder that is not a site, outside git, and on a path that does not
 exist, and what the auditor is allowed to run: pushes, commits, redirections,
-interpreters, form submissions and the write hidden at the end of a compound
-command all have to come back refused, while curl and the reading half of git
+interpreters, form submissions, the write hidden at the end of a compound
+command, and the one tucked into a short option (`curl -sSo page.html`,
+`curl -XPOST`, `git log --outp=log.txt`) all have to come back refused, while curl and the reading half of git
 have to come through. They also run the prose through `tools/stylecheck.py`,
 which enforces the writing rules mechanically instead of by rereading.
 

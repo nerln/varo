@@ -83,16 +83,45 @@ GIT_GLOBALI_CON_VALORE = {"-C", "--git-dir", "--work-tree"}
 # real person.
 CURL_SCRIVE = {"-o", "--output", "-O", "--remote-name", "--create-dirs", "--dump-header", "-D",
                "--trace", "--trace-ascii", "--cookie-jar", "-c", "--output-dir", "--remote-header-name",
-               "--libcurl", "--etag-save", "--stderr",
+               "--libcurl", "--etag-save", "--stderr", "--remote-name-all", "--hsts", "--alt-svc",
+               "--ssl-sessions", "-J",
                # A config file is a second command line living in a file, and
                # nothing here can read what is in it.
                "-K", "--config"}
 CURL_INVIA = {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--data-ascii",
-              "-F", "--form", "--form-string", "-T", "--upload-file", "--json"}
+              "-F", "--form", "--form-string", "-T", "--upload-file", "--json",
+              # Commands for an FTP server, and mail for a real person.
+              "-Q", "--quote", "--mail-from", "--mail-rcpt", "--mail-auth"}
 CURL_METODI_LETTURA = {"GET", "HEAD"}
+# Short curl options that take a value. In a cluster like `-sSo page.html` the
+# letter that takes a value ends the cluster, and whatever follows it is that
+# value, which is how `-XPOST` and `-ofile` hide from a check made token by token.
+CURL_CORTE_CON_VALORE = set("AbCeEHmPrtuUxyYz")
+# The only schemes an audit of a website has a use for. gopher, dict, smtp and
+# telnet can carry arbitrary bytes to a server, which is a write by another name.
+SCHEMI_LETTURA = {"http", "https"}
 
 FIND_SCRIVE = {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0",
                "-fprintf", "-fls"}
+
+# git subcommands, and options valid on all of them, that write a file or run a
+# program: `--output` saves a diff or a log, `grep -O` opens the matches in a
+# command of its own, `ls-remote --upload-pack` runs one.
+GIT_SCRIVE_OVUNQUE = {"--output"}
+GIT_ESEGUE = {"grep": ({"--open-files-in-pager"}, "O"), "ls-remote": ({"--upload-pack"}, "u")}
+# Read-only subcommands that create something when handed a name: `git tag v9`
+# makes a tag, `git branch new` a branch. These options turn them back into a list.
+GIT_ELENCA = {
+    "tag": {"-l", "--list", "-n", "--contains", "--no-contains", "--merged", "--no-merged",
+            "--points-at"},
+    "branch": {"-l", "--list", "--contains", "--no-contains", "--merged", "--no-merged",
+               "--points-at"},
+}
+
+# Where a command written with its full path may live. `./cat` is whatever the
+# repo being audited put there under that name.
+CARTELLE_DI_SISTEMA = {"/bin", "/usr/bin", "/usr/sbin", "/sbin", "/usr/local/bin",
+                       "/opt/homebrew/bin"}
 
 # What separates one command from the next. Everything else made of punctuation
 # is a redirection, a subshell or a background job, and each of those is a way
@@ -118,6 +147,29 @@ def nudo(t: str) -> str:
     if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'":
         return t[1:-1]
     return t
+
+
+def corte(a: str) -> str:
+    """The letters of a cluster of short options such as `-sSo`, or "" for anything else."""
+    if len(a) > 1 and a[0] == "-" and a[1] != "-":
+        return a[1:]
+    return ""
+
+
+def tra(nome: str, vietati: set[str]) -> bool:
+    """Whether a long option names one of these, written out or cut short.
+
+    git and getopt accept any unambiguous prefix, so `--outp` is `--output`.
+    """
+    if nome in vietati:
+        return True
+    return nome.startswith("--") and len(nome) > 3 and any(  # stylecheck: allow
+        v.startswith(nome) for v in vietati if v.startswith("--")  # stylecheck: allow
+    )
+
+
+def posizionali(argomenti: list[str]) -> list[str]:
+    return [a for a in argomenti if a == "-" or not a.startswith("-")]
 
 
 def token(comando: str) -> list[str]:
@@ -196,9 +248,24 @@ def controlla_git(argomenti: list[str]) -> None:
             "The auditor reports what is live, it does not stage, commit, push or deploy"
         )
     vietati = GIT_FLAG_SCRITTURA.get(sotto, set())
+    esegue, lettera = GIT_ESEGUE.get(sotto, (set(), ""))
     for a in argomenti_sotto:
-        if a.split("=", 1)[0] in vietati:
+        nome = a.split("=", 1)[0]
+        if tra(nome, vietati) or any(f"-{c}" in vietati for c in corte(a)):
             raise Rifiuto(f"`git {sotto} {a}` writes, and the auditor only reads")
+        if tra(nome, GIT_SCRIVE_OVUNQUE):
+            raise Rifiuto(f"`git {sotto} {a}` saves its output to a file")
+        if tra(nome, esegue) or (lettera and lettera in corte(a)):
+            raise Rifiuto(f"`git {sotto} {a}` runs a program of its own choosing")
+    if sotto in GIT_ELENCA and posizionali(argomenti_sotto) and not any(
+        tra(a.split("=", 1)[0], GIT_ELENCA[sotto]) or (sotto == "tag" and a.startswith("-n"))
+        for a in argomenti_sotto
+    ):
+        raise Rifiuto(
+            f"`git {sotto}` with a name creates one. To list them, add --list"
+        )
+    if sotto == "symbolic-ref" and len(posizionali(argomenti_sotto)) > 1:
+        raise Rifiuto("`git symbolic-ref` with two names points HEAD somewhere else")
     if sotto == "config" and not any(
         a.startswith(("--get", "--list", "-l")) for a in argomenti_sotto
     ):
@@ -208,30 +275,63 @@ def controlla_git(argomenti: list[str]) -> None:
         )
 
 
+def opzioni(argomenti: list[str], i: int, con_valore: set[str]) -> list[tuple[str, str]]:
+    """The options inside one token, each with the value it would be given.
+
+    A long option takes what follows `=`, or the next token. In a cluster of short
+    ones, the first letter that takes a value takes the rest of the cluster.
+    """
+    a = argomenti[i]
+    seguente = argomenti[i + 1] if i + 1 < len(argomenti) else ""
+    if a.startswith("--"):  # stylecheck: allow
+        nome, uguale, attaccato = a.partition("=")
+        return [(nome, attaccato if uguale else seguente)]
+    fuori = []
+    for j, c in enumerate(corte(a)):
+        fuori.append((f"-{c}", a[j + 2:].lstrip("=") or seguente))
+        if c in con_valore:
+            break
+    return fuori
+
+
+# Real curl options that happen to be the start of one refused above.
+CURL_ESATTE = {"--cookie", "--ssl"}
+
+
 def controlla_curl(argomenti: list[str]) -> None:
     argomenti = [nudo(a) for a in argomenti]
+    con_valore = CURL_CORTE_CON_VALORE | {n[1] for n in CURL_SCRIVE | CURL_INVIA if len(n) == 2} | {"o", "X", "w"}
     for i, a in enumerate(argomenti):
-        nome = a.split("=", 1)[0]
-        if nome in CURL_SCRIVE:
-            valore = argomenti[i + 1] if i + 1 < len(argomenti) else ""
-            if nome in {"-o", "--output"} and valore == "/dev/null":
-                continue
-            raise Rifiuto(
-                f"`curl {a}` saves the response to a file. To read a status code without "
-                'writing anything, use `curl -sS -o /dev/null -w "%{http_code}"`'
-            )
-        if nome in CURL_INVIA:
-            raise Rifiuto(
-                f"`curl {a}` sends a request body. Reaching a form means checking that it "
-                "is wired up, and submitting it mails a real person"
-            )
-        if nome in {"-X", "--request"}:
-            metodo = argomenti[i + 1] if i + 1 < len(argomenti) else ""
-            if metodo.upper() not in CURL_METODI_LETTURA:
+        if not a.startswith("-"):
+            schema = a.split("://", 1)[0].lower() if "://" in a else ""
+            if schema and schema not in SCHEMI_LETTURA:
                 raise Rifiuto(
-                    f"`curl -X {metodo}` asks the live site to change something. "
+                    f"`{schema}://` is not a web address. An audit reads pages over http and "
+                    "https, and the other schemes can carry anything to a server"
+                )
+            continue
+        for nome, valore in opzioni(argomenti, i, con_valore):
+            if nome in CURL_ESATTE:
+                continue
+            if tra(nome, {"-o", "--output"}) and valore == "/dev/null":
+                continue
+            if tra(nome, CURL_SCRIVE):
+                raise Rifiuto(
+                    f"`curl {a}` saves the response to a file. To read a status code without "
+                    'writing anything, use `curl -sS -o /dev/null -w "%{http_code}"`'
+                )
+            if tra(nome, CURL_INVIA):
+                raise Rifiuto(
+                    f"`curl {a}` sends a request body. Reaching a form means checking that it "
+                    "is wired up, and submitting it mails a real person"
+                )
+            if tra(nome, {"-X", "--request"}) and valore.upper() not in CURL_METODI_LETTURA:
+                raise Rifiuto(
+                    f"`curl {a}` asks the live site to change something. "
                     "An audit asks and reads the answer"
                 )
+            if tra(nome, {"-w", "--write-out"}) and ("%output{" in valore or valore.startswith("@")):
+                raise Rifiuto(f"`curl {a}` can write its report to a file")
 
 
 def controlla_gh(argomenti: list[str]) -> None:
@@ -241,21 +341,55 @@ def controlla_gh(argomenti: list[str]) -> None:
             "`gh` is allowed for `gh api` read requests, which is how you ask whether a "
             "deploy landed. The rest of gh opens, closes and merges things"
         )
-    for i, a in enumerate(argomenti[1:]):
-        nome = a.split("=", 1)[0]
-        if nome in {"-f", "-F", "--field", "--raw-field", "--input"}:
-            raise Rifiuto(f"`gh api {a}` sends a body, which turns the request into a write")
-        if nome in {"-X", "--method"}:
-            metodo = argomenti[i + 2] if i + 2 < len(argomenti) else ""
-            if metodo.upper() not in CURL_METODI_LETTURA:
-                raise Rifiuto(f"`gh api -X {metodo}` is a write request")
+    resto = argomenti[1:]
+    for i, a in enumerate(resto):
+        if not a.startswith("-"):
+            continue
+        for nome, valore in opzioni(resto, i, set("XfFHpqt")):
+            if nome in {"-f", "-F", "--field", "--raw-field", "--input"}:
+                raise Rifiuto(f"`gh api {a}` sends a body, which turns the request into a write")
+            if nome in {"-X", "--method"} and valore.upper() not in CURL_METODI_LETTURA:
+                raise Rifiuto(f"`gh api {a}` is a write request")
 
 
 def controlla_sort(argomenti: list[str]) -> None:
-    # `sort -o` writes where it read, which is the one way this reader writes.
+    # `sort -o` writes where it read, which is the one way this reader writes,
+    # and `--compress-program` hands the data to a program.
     for a in (nudo(x) for x in argomenti):
-        if a.split("=", 1)[0] in {"-o", "--output"}:
-            raise Rifiuto(f"`sort {a}` writes its result to a file")
+        if tra(a.split("=", 1)[0], {"--output", "--compress-program"}) or any(
+            nome == "-o" for nome, _ in opzioni([a], 0, set("koStT"))
+        ):
+            raise Rifiuto(f"`sort {a}` writes its result to a file or hands it to a program")
+
+
+def controlla_uniq(argomenti: list[str]) -> None:
+    # The second file uniq is given is where it writes.
+    operandi, salta, fine = [], False, False
+    for a in (nudo(x) for x in argomenti):
+        if salta:
+            salta = False
+        elif fine or a == "-" or not a.startswith("-"):
+            operandi.append(a)
+        elif a == "--":  # stylecheck: allow
+            fine = True
+        elif a in {"-f", "-s", "-w"}:
+            salta = True
+    if len(operandi) > 1:
+        raise Rifiuto(f"`uniq {operandi[0]} {operandi[1]}` writes its result to the second file")
+
+
+def controlla_rg(argomenti: list[str]) -> None:
+    for a in (nudo(x) for x in argomenti):
+        if a.split("=", 1)[0] in {"--pre", "--hostname-bin"}:
+            raise Rifiuto(f"`rg {a}` runs a program of its own choosing")
+
+
+def controlla_file(argomenti: list[str]) -> None:
+    for a in (nudo(x) for x in argomenti):
+        if tra(a.split("=", 1)[0], {"--compile"}) or any(
+            nome == "-C" for nome, _ in opzioni([a], 0, set("CeFfmP"))
+        ):
+            raise Rifiuto(f"`file {a}` compiles a magic file and writes it out")
 
 
 def controlla_find(argomenti: list[str]) -> None:
@@ -270,6 +404,9 @@ CONTROLLI = {
     "gh": controlla_gh,
     "find": controlla_find,
     "sort": controlla_sort,
+    "uniq": controlla_uniq,
+    "rg": controlla_rg,
+    "file": controlla_file,
 }
 
 
@@ -286,6 +423,11 @@ def esamina(comando: str) -> None:
                 "how that command behaves. Write the command on its own"
             )
         nome = programma.rsplit("/", 1)[-1]
+        if "/" in programma and programma.rsplit("/", 1)[0] not in CARTELLE_DI_SISTEMA:
+            raise Rifiuto(
+                f"`{programma}` is a program by that name living outside the system folders. "
+                "Call it by its name alone"
+            )
         if nome not in LETTURA:
             raise Rifiuto(
                 f"`{nome}` is not one of the commands the auditor may run. The list holds "

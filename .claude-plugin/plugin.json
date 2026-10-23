@@ -1,6 +1,6 @@
 {
   "name": "varo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Ship a static site and keep it honest. A skill that knows the hosts and the traps, an auditor agent that reports only what the live site confirmed, and a SessionStart hook that says where the site deploys and what is committed but not published. Built around one idea: the repo and production drift apart quietly, and only production is what people load.",
   "author": {
     "name": "Eugenio Nerelli",

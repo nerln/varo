@@ -383,6 +383,55 @@ def main() -> int:
         "cat index.html 2>/dev/null",
     ])
 
+    # Le scritture che il 23/10/2026 passavano ancora, una prova ciascuna: le
+    # opzioni corte attaccate o raggruppate, i nomi lunghi abbreviati, e i
+    # sottocomandi che leggono finché non gli si dà un nome.
+    tutti_negati("nega le opzioni attaccate, raggruppate o abbreviate", [
+        "curl -sSo pagina.html https://esempio.it/",
+        "curl -ofile https://esempio.it/",
+        "curl -XPOST https://esempio.it/contatti",
+        "curl -sd nome=x https://esempio.it/contatti",
+        "curl --outp pagina.html https://esempio.it/",
+        "gh api -XPOST repos/tale/quale/issues",
+        "gh api -ftitle=x repos/tale/quale/issues",
+        "sort -ofuori.txt dentro.txt",
+        "git log --outp=log.txt",
+    ])
+    tutti_negati("nega le scritture e i programmi nascosti nei comandi che leggono", [
+        "curl --remote-name-all https://esempio.it/a",
+        "curl --hsts hsts.txt https://esempio.it/",
+        "curl -w '%output{x.txt}ciao' https://esempio.it/",
+        "curl -Q 'DELE f' ftp://esempio.it/",
+        "curl gopher://esempio.it:25/_HELO",
+        "sort --compress-program=sh dentro.txt",
+        "uniq dentro.txt fuori.txt",
+        "rg --pre ./x.sh cosa",
+        "git diff --output x.txt",
+        "git grep -Ovim cosa",
+        "git ls-remote --upload-pack='touch x' .",
+        "git tag v9",
+        "git branch nuovo",
+        "git symbolic-ref HEAD refs/heads/altro",
+        "file -C -m magic",
+        "./cat index.html",
+    ])
+    tutti_permessi("lascia leggere anche con le opzioni raggruppate", [
+        "curl -so /dev/null -w '%{http_code}' https://esempio.it/",
+        "curl -sSIL --max-time 10 -A Mozilla https://esempio.it/",
+        "curl -sS -H 'Accept: text/html' --compressed https://esempio.it/",
+        "gh api --paginate repos/tale/quale/deployments --jq '.[0].sha'",
+        "git tag --list 'v*'",
+        "git tag",
+        "git branch -a",
+        "git grep -n mailto",
+        "git ls-remote origin",
+        "sort -rn | uniq -c",
+        "uniq -c dentro.txt",
+        "rg -n mailto .",
+        "file index.html",
+        "/usr/bin/curl -sSI https://esempio.it/",
+    ])
+
     # Una redirezione scrive, un `>` fra virgolette è testo che si cerca dentro
     # una pagina. Confonderli fermerebbe un controllo che serve.
     prova("non scambia un > fra virgolette per una redirezione",
